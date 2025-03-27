@@ -1,4 +1,6 @@
 import telebot
+from telebot.types import InlineKeyboardButton
+
 
 def create_back_button():
     return telebot.types.KeyboardButton('Назад')
@@ -39,10 +41,12 @@ def create_first_set_inline():
     return keyboard
 
 def order_keyboard(price):
+    clean_price = price.replace('~', '')
+
     keyboard = telebot.types.InlineKeyboardMarkup()
     keyboard.add(
         telebot.types.InlineKeyboardButton(
-            'Заказать',
+            f'Заказать за {clean_price} руб.',
             callback_data=f'order_{price}'
         )
     )
@@ -53,5 +57,15 @@ def markup_keyboard():
     markup.row(
         telebot.types.InlineKeyboardButton("Консультация флориста", callback_data="consult"),
         telebot.types.InlineKeyboardButton("Другие букеты", callback_data="more_flowers")
+    )
+    return markup
+
+def get_pay_keyboard(amount, order_id):
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton(
+            text=f"Оплатить {amount} руб",
+            callback_data=f'robokassa_{amount}_{order_id}'
+        )
     )
     return markup
