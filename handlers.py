@@ -1,6 +1,6 @@
 import telebot
 from telebot import types
-from keyboards import first_keyboard, create_first_set_inline, order_keyboard
+from keyboards import first_keyboard, create_first_set_inline, order_keyboard, markup_keyboard
 import time
 
 user_states = {}
@@ -44,7 +44,7 @@ def handle_start(bot: telebot.TeleBot):
         )
 
 
-def handle_messages(bot: telebot.TeleBot, provider_token: str):
+def handle_messages(bot: telebot.TeleBot, provider_token: str, florist_chat_id: int):
     """Регистрирует обработчик для текстовых сообщений.
 
     Обрабатывает нажатие кнопки 'Назад' и выбор повода для букета.
@@ -59,7 +59,34 @@ def handle_messages(bot: telebot.TeleBot, provider_token: str):
         chat_id = message.chat.id
         current_state = user_states.get(user_id)
 
-        if current_state == 'awaiting_name':
+        if current_state == 'awaiting_phone_consult':
+            phone_number = message.text
+            user_info.setdefault(user_id, {})['phone_consult'] = phone_number
+
+            bot.send_message(chat_id,
+                    "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
+                             )
+
+            bot.send_message(chat_id, 'На какую сумму расчитываете?',
+                             reply_markup=create_first_set_inline())
+
+            if florist_chat_id:
+                customer_username = message.from_user.username
+                customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
+
+                bot.send_message(
+                    florist_chat_id,
+                    f"📞 *Запрос на консультацию!*\n\n"
+                    f"👤 *Клиент:* {customer_contact_info}\n"
+                    f"☎️ *Телефон:* {phone_number}\n\n"
+                    f"Пожалуйста, свяжитесь с клиентом.",
+                    parse_mode='Markdown'
+                )
+
+            if user_id in user_states:
+                del user_states[user_id]
+
+        elif current_state == 'awaiting_name':
             user_info[user_id]['name'] = message.text
             user_states[user_id] = 'awaiting_address'
             bot.send_message(chat_id, 'Отлично! Теперь введите адрес доставки:')
@@ -168,6 +195,18 @@ def handle_callbacks(bot: telebot.TeleBot, provider_token: str):
             else:
                     bot.answer_callback_query(call.id, "Фото для этой цены не найдено.", show_alert=True)
 
+
+            additional_text = (
+                "<b>Хотите что-то еще более уникальное?</b>\n"
+                "Подберите другой букет из нашей коллекции или закажите консультацию флориста."
+            )
+            bot.send_message(chat_id,
+                             additional_text,
+                             parse_mode='HTML',
+                             reply_markup=markup_keyboard())
+
+            bot.answer_callback_query(call.id)
+
         elif call.data.startswith('order_'):
             price = call.data.split('_')[1]
             user_info[user_id] = {'price': price}
@@ -176,21 +215,10 @@ def handle_callbacks(bot: telebot.TeleBot, provider_token: str):
 
             bot.send_message(chat_id, "Для оформления заказа, пожалуйста, введите ваше имя:")
             bot.answer_callback_query(call.id, text="Начинаем оформление заказа...")
-
-
-
-
         elif call.data == 'consult':
-            bot.send_message(
-                call.message.chat.id,
-                " Укажите номер телефона, и наш флорист перезвонит вам в течение 20 минут:"
-            )
-        elif call.data == 'more_flowers':
-            bot.send_message(
-                call.message.chat.id,
-                "Выберите категорию букетов:",
-                reply_markup=create_first_set_inline()
-            )
+            user_states[user_id] = 'awaiting_phone_consult'
+            bot.send_message(chat_id, "Укажите номер телефона, и наш флорист перезвонит вам в течение 20 минут.")
+            bot.answer_callback_query(call.id, text="Введите номер телефона")
 
 
 def handle_pre_checkout(bot: telebot.TeleBot):

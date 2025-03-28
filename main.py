@@ -1,6 +1,6 @@
 import telebot
 from dotenv import load_dotenv
-from heandlers import handle_start, handle_callbacks, handle_messages, handle_pre_checkout, handle_successful_payment, \
+from handlers import handle_start, handle_callbacks, handle_messages, handle_pre_checkout, handle_successful_payment, \
     user_info
 import os
 
@@ -16,6 +16,7 @@ def main():
     token_tg = os.environ['TOKEN_TG']
     provider_token = os.environ.get('PROVIDER_TOKEN')
     courier_chat_id = os.environ.get('COURIER_CHAT_ID')
+    florist_chat_id = os.environ.get('FLORIS_CHAT_ID')
 
     if not token_tg:
         print("ОШИБКА: Токен бота TOKEN_TG не найден в .env!")
@@ -30,10 +31,15 @@ def main():
     except ValueError:
         print("ПРЕДУПРЕЖДЕНИЕ: COURIER_CHAT_ID не найден в .env! Уведомления курьеру НЕ БУДУТ РАБОТАТЬ.")
 
+    try:
+        florist_chat_id = int(florist_chat_id)
+        print(f"ID флориста загружен: {florist_chat_id}")
+    except ValueError:
+        print("ПРЕДУПРЕЖДЕНИЕ: FLORIST_CHAT_ID не найден в .env! Уведомления флористу НЕ БУДУТ РАБОТАТЬ.")
     bot = telebot.TeleBot(token_tg)
 
     handle_start(bot)
-    handle_messages(bot, provider_token)
+    handle_messages(bot, provider_token, florist_chat_id)
     handle_callbacks(bot, provider_token)
     handle_pre_checkout(bot),
     handle_successful_payment(bot, user_info, courier_chat_id)
