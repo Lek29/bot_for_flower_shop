@@ -19,6 +19,16 @@ def handle_start(bot: telebot.TeleBot):
     @bot.message_handler(commands=['start'])
     def send_welcome(message):
         user_id = message.from_user.id
+        chat_id = message.chat.id
+
+        #временная часть для получения id курьера или флориста
+        # print(f"================================================")
+        # print(f"Получено сообщение /start от:")
+        # print(f"  Chat ID: {chat_id}")
+        # print(f"  User ID: {user_id}")
+        # if message.from_user.username:
+        #     print(f"  Username: @{message.from_user.username}")
+        # print(f"================================================")
 
         if user_id in user_states:
             del user_states[user_id]
@@ -205,11 +215,11 @@ def handle_pre_checkout(bot: telebot.TeleBot):
                  print(f"Не удалось ответить даже отказом на PreCheckoutQuery {pre_checkout_query.id}: {final_e}")
 
 
-def handle_successful_payment(bot: telebot.TeleBot, user_info: dict):
+def handle_successful_payment(bot: telebot.TeleBot, user_info: dict, courier_chat_id: int):
     """Регистрирует обработчик для сообщений о 'successful_payment'.
 
     Этот обработчик вызывается после успешного завершения платежа.
-    Он извлекает информацию о платеже и отправляет подтверждение пользователю.
+    Он извлекает информацию о платеже и отправляет подтверждение пользователю и заказ курьеру.
     Именно здесь должна быть логика выполнения оплаченного заказа.
 
     Args:
@@ -233,6 +243,8 @@ def handle_successful_payment(bot: telebot.TeleBot, user_info: dict):
             address = order_details.get('address', 'Не указан')
             date = order_details.get('date', 'Не указана')
             time = order_details.get('time', 'Не указано')
+            customer_username = message.from_user.username
+            customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
 
             confirmation_message = (
                 f"✅ *Оплата на сумму {amount} {currency} прошла успешно!* Ваш заказ принят. Спасибо! 🎉\n\n"
@@ -243,7 +255,19 @@ def handle_successful_payment(bot: telebot.TeleBot, user_info: dict):
                 f"📅 *Дата:* {date}\n"
                 f"⏰ *Время:* {time}\n")
 
+            courier_notification_message = (
+                f"‼️ *Новый заказ!* (Payload: `{payload}`)\n\n"
+                f"💐 *Букет:* ~{price.replace('~', '')} руб.\n"
+                f"👤 *Имя получателя:* {name}\n"
+                f"🏠 *Адрес доставки:* {address}\n"
+                f"📅 *Дата:* {date}\n"
+                f"⏰ *Время:* {time}\n\n"
+                f"👤 *Заказчик:* {customer_contact_info}\n"
+                f"💰 *Оплачено:* {amount} {currency}"
+            )
+
             bot.send_message(chat_id, confirmation_message, parse_mode='Markdown')
+            bot.send_message(courier_chat_id, courier_notification_message, parse_mode='Markdown')
 
         #ГЛАВНАЯ ЛОГИКА ПОСЛЕ ОПЛАТЫ ---
 
