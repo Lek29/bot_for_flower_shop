@@ -1,6 +1,7 @@
 import telebot
 from dotenv import load_dotenv
-from heandlers import handle_start, handle_callbacks, handle_messages, handle_pre_checkout, handle_successful_payment
+from heandlers import handle_start, handle_callbacks, handle_messages, handle_pre_checkout, handle_successful_payment, \
+    user_info
 import os
 
 
@@ -18,19 +19,19 @@ def main():
     if not token_tg:
         print("ОШИБКА: Токен бота TOKEN_TG не найден в .env!")
         return
-        # Проверяем и provider_token здесь
+
     if not provider_token:
         print("ОШИБКА: Токен провайдера PROVIDER_TOKEN не найден в .env! Оплата НЕ БУДЕТ РАБОТАТЬ.")
-        return
+
     bot = telebot.TeleBot(token_tg)
 
     handle_start(bot)
-    handle_messages(bot)
+    handle_messages(bot, provider_token)
     handle_callbacks(bot, provider_token)
     handle_pre_checkout(bot),
-    handle_successful_payment(bot)
+    handle_successful_payment(bot, user_info)
 
-    bot.polling()
+    bot.polling(non_stop=True)
 
 
 if __name__ == '__main__':
