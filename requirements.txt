@@ -3,5 +3,5 @@ Django==5.1.7
 pillow==11.1.0
 sqlparse==0.5.3
 tzdata==2025.2
-
-## Зависимости не main
+pyTelegramBotAPI==4.26.0
+python-dotenv==1.1.0

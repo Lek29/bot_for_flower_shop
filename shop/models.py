@@ -13,7 +13,7 @@ class User(AbstractUser):
     phone = models.CharField(max_length=20)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, null=True, blank=True)
     is_active = models.BooleanField(default=True)
-
+    chat_id = models.BigIntegerField(null=True, blank=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -65,7 +65,7 @@ class Order(models.Model):
     bouquet = models.ForeignKey(Bouquet, on_delete=models.PROTECT)
 
     customer_name = models.CharField(max_length=150)
-    phone = models.CharField(max_length=20)
+    phone = models.CharField(max_length=20, blank=True, null=True)
     address = models.TextField()
     delivery_datetime = models.DateTimeField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
