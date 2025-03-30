@@ -114,7 +114,6 @@ def handle_messages(bot, provider_token):
         elif current_state == 'awaiting_time':
             user_info[user_id]['time'] = message.text
 
-            # Читаем bouquet_id
             bouquet_id = user_info[user_id].get('bouquet_id')
             if not bouquet_id:
                 bot.send_message(chat_id, "Ошибка: не выбран букет. Начните сначала /start.")
@@ -191,7 +190,7 @@ def handle_messages(bot, provider_token):
             bot.send_message(chat_id, "Вы вернулись в главное меню", reply_markup=first_keyboard())
 
         elif message.text in ("День рождения", "Свадьба", "В школу", "Без повода", "Другой повод"):
-            chosen = message.text.lower().replace('ё', 'е')  # мало ли
+            chosen = message.text.lower().replace('ё', 'е')
             user_info.setdefault(user_id, {})['occasion'] = chosen
 
             bot.send_message(
@@ -212,28 +211,20 @@ def handle_callbacks(bot):
         if call.data.startswith('~'):
             price_str = call.data.replace('~', '')
             user_info.setdefault(user_id, {})
-            occasion = user_info[user_id].get('occasion', None)
+            user_info[user_id]['price_filter'] = price_str
 
             try:
                 qs = Bouquet.objects.filter(is_active=True)
-                if occasion is not None:
-                    if occasion.startswith("другой"):
-                        pass
-                    elif occasion == "без повода":
-                        qs = qs.filter(occasion="без повода")
-                    else:
-                        qs = qs.filter(occasion=occasion)
-
                 if price_str.isdigit():
                     price = int(price_str)
                     qs = qs.filter(price__lte=price).order_by('-price')
                     bouquet = qs.first()
-                elif price_str == "Больше":
+                elif price_str == 'Больше':
                     qs = qs.filter(price__gt=2000).order_by('price')
                     bouquet = qs.first()
-                elif price_str == "Не важно":
-                    qs = qs.order_by(Random())
-                    bouquet = qs.first()
+                elif price_str == 'Не важно':
+                    qs = qs.order_by(Random()).first()
+                    bouquet = qs
                 else:
                     bouquet = None
 
@@ -252,10 +243,9 @@ def handle_callbacks(bot):
                 else:
                     bot.answer_callback_query(
                         call.id,
-                        "Букетов не найдено под выбранный критерий.",
+                        "Букетов не найдено под выбранные критерии.",
                         show_alert=True
                     )
-
             except Exception as e:
                 print(f"Ошибка при выборе букета: {e}")
                 bot.answer_callback_query(call.id, "Ошибка при выборе букета.", show_alert=True)
@@ -263,7 +253,7 @@ def handle_callbacks(bot):
         elif call.data.startswith('order_'):
             bouquet_id = user_info.get(user_id, {}).get('bouquet_id')
             if not bouquet_id:
-                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните сначала /start")
+                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните /start.")
                 return
 
             user_info[user_id] = {'bouquet_id': bouquet_id}
@@ -274,11 +264,53 @@ def handle_callbacks(bot):
         elif call.data == 'consult':
             user_states[user_id] = 'awaiting_phone_consult'
             bot.send_message(chat_id, "Укажите номер телефона, и наш флорист перезвонит вам в течение 20 минут.")
-            bot.answer_callback_query(call.id, text="Введите номер телефона")
+            bot.answer_callback_query(call.id, "Введите номер телефона")
 
         elif call.data == 'more_flowers':
-            bot.answer_callback_query(call.id, "Показ каталога в процессе...", show_alert=True)
-            bot.send_message(chat_id, "Пока логика каталога не реализована.")
+            last_id = user_info.get(user_id, {}).get('bouquet_id')
+            if not last_id:
+                bot.answer_callback_query(call.id, "Сначала выберите какой-нибудь букет", show_alert=True)
+                return
+
+            try:
+                last_bouquet = Bouquet.objects.get(id=last_id, is_active=True)
+            except Bouquet.DoesNotExist:
+                bot.answer_callback_query(call.id, "Текущий букет недоступен", show_alert=True)
+                return
+
+            p_min = max(0, last_bouquet.price - 200)
+            p_max = last_bouquet.price + 200
+
+            qs = Bouquet.objects.filter(is_active=True,
+                                        price__gte=p_min, price__lte=p_max
+                                        ).exclude(id=last_bouquet.id)
+
+            new_bouquet = qs.order_by(Random()).first()
+            if not new_bouquet:
+                bot.answer_callback_query(
+                    call.id,
+                    "В диапазоне ±200 руб больше нет букетов. Попробуйте другую категорию.",
+                    show_alert=True
+                )
+                return
+
+            user_info[user_id]['bouquet_id'] = new_bouquet.id
+
+            try:
+                with open(new_bouquet.photo.path, 'rb') as photo:
+                    caption = f"{new_bouquet.description}\n\nЦена: {new_bouquet.price} руб."
+                    bot.send_photo(chat_id, photo, caption=caption,
+                                   reply_markup=order_keyboard(new_bouquet.price))
+            except Exception as e:
+                print(f"Ошибка открытия фото {e}")
+                bot.send_message(chat_id, "Не удалось открыть фото букета.")
+
+            additional_text = (
+                "<b>Хотите что-то еще более уникальное?</b>\n"
+                "Подберите другой букет из нашей коллекции или закажите консультацию флориста."
+            )
+            bot.send_message(chat_id, additional_text, parse_mode='HTML', reply_markup=markup_keyboard())
+            bot.answer_callback_query(call.id)
 
 
 def handle_pre_checkout(bot):
