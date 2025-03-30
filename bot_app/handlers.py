@@ -114,9 +114,10 @@ def handle_messages(bot, provider_token):
         elif current_state == 'awaiting_time':
             user_info[user_id]['time'] = message.text
 
+            # Читаем bouquet_id
             bouquet_id = user_info[user_id].get('bouquet_id')
             if not bouquet_id:
-                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните /start заново.")
+                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните сначала /start.")
                 user_states.pop(user_id, None)
                 user_info.pop(user_id, None)
                 return
@@ -158,12 +159,11 @@ def handle_messages(bot, provider_token):
             user_info[user_id]['payload'] = payload
 
             if not provider_token:
-                bot.send_message(chat_id, "Онлайн-оплата недоступна. Заказ сохранён (статус new).")
+                bot.send_message(chat_id, "Онлайн-оплата недоступна. Заказ сохранён, статус: new.")
                 user_states.pop(user_id, None)
                 return
 
             amount_kopecks = bouquet_obj.price * 100
-
             invoice_title = f"Оплата букета ({bouquet_obj.price} руб.)"
             invoice_desc = f"Заказ #{order_obj.id} из магазина {bot.get_me().username}"
             prices = [types.LabeledPrice(label=f"Букет {bouquet_obj.price} руб.", amount=amount_kopecks)]
@@ -188,12 +188,12 @@ def handle_messages(bot, provider_token):
             return
 
         if message.text == 'Назад':
-            bot.send_message(
-                chat_id,
-                "Вы вернулись в главное меню",
-                reply_markup=first_keyboard()
-            )
+            bot.send_message(chat_id, "Вы вернулись в главное меню", reply_markup=first_keyboard())
+
         elif message.text in ("День рождения", "Свадьба", "В школу", "Без повода", "Другой повод"):
+            chosen = message.text.lower().replace('ё', 'е')  # мало ли
+            user_info.setdefault(user_id, {})['occasion'] = chosen
+
             bot.send_message(
                 chat_id,
                 'На какую сумму рассчитываете?',
@@ -211,19 +211,29 @@ def handle_callbacks(bot):
 
         if call.data.startswith('~'):
             price_str = call.data.replace('~', '')
-            user_info.setdefault(user_id, {})['price_filter'] = price_str
+            user_info.setdefault(user_id, {})
+            occasion = user_info[user_id].get('occasion', None)
 
             try:
+                qs = Bouquet.objects.filter(is_active=True)
+                if occasion is not None:
+                    if occasion.startswith("другой"):
+                        pass
+                    elif occasion == "без повода":
+                        qs = qs.filter(occasion="без повода")
+                    else:
+                        qs = qs.filter(occasion=occasion)
+
                 if price_str.isdigit():
                     price = int(price_str)
-                    bouquet = Bouquet.objects.filter(price__lte=price, is_active=True).order_by('-price').first()
-
+                    qs = qs.filter(price__lte=price).order_by('-price')
+                    bouquet = qs.first()
                 elif price_str == "Больше":
-                    bouquet = Bouquet.objects.filter(price__gt=2000, is_active=True).order_by('price').first()
-
+                    qs = qs.filter(price__gt=2000).order_by('price')
+                    bouquet = qs.first()
                 elif price_str == "Не важно":
-                    bouquet = Bouquet.objects.filter(is_active=True).order_by(Random()).first()
-
+                    qs = qs.order_by(Random())
+                    bouquet = qs.first()
                 else:
                     bouquet = None
 
