@@ -63,6 +63,17 @@ def handle_messages(bot, provider_token):
         chat_id = message.chat.id
         current_state = user_states.get(user_id, None)
 
+        if current_state == 'awaiting_custom_occasion':
+            user_info[user_id] = {'occasion': 'без повода'}
+            user_states[user_id] = 'awaiting_price_selection'
+
+            bot.send_message(
+                chat_id,
+                "На какую сумму рассчитываете?",
+                reply_markup=create_first_set_inline()
+            )
+            return
+
         if current_state == 'awaiting_phone_consult':
             phone_number = message.text
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
@@ -114,19 +125,25 @@ def handle_messages(bot, provider_token):
         elif current_state == 'awaiting_time':
             user_info[user_id]['time'] = message.text
 
+            price = user_info[user_id].get('price')
             bouquet_id = user_info[user_id].get('bouquet_id')
-            if not bouquet_id:
-                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните сначала /start.")
+
+            if not price or not bouquet_id:
+                bot.send_message(chat_id, "Ошибка: не найдена цена или букет. Начните сначала /start.")
                 user_states.pop(user_id, None)
                 user_info.pop(user_id, None)
                 return
 
             try:
-                bouquet_obj = Bouquet.objects.get(id=bouquet_id, is_active=True)
+                rub_int = int(price)
+            except ValueError:
+                rub_int = 0
+
+            try:
+                bouquet_obj = Bouquet.objects.get(id=bouquet_id)
             except Bouquet.DoesNotExist:
-                bot.send_message(chat_id, "Ошибка: выбранный букет не найден или неактивен.")
+                bot.send_message(chat_id, "Ошибка: выбранный букет не найден. Попробуйте сначала /start.")
                 user_states.pop(user_id, None)
-                user_info.pop(user_id, None)
                 return
 
             guest_user, _ = User.objects.get_or_create(
@@ -153,8 +170,7 @@ def handle_messages(bot, provider_token):
             )
 
             user_info[user_id]['order_id'] = order_obj.id
-
-            payload = f"order_{user_id}_{bouquet_obj.price}_{int(time.time())}"
+            payload = f"order_{user_id}_{price}_{int(time.time())}"
             user_info[user_id]['payload'] = payload
 
             if not provider_token:
@@ -162,20 +178,17 @@ def handle_messages(bot, provider_token):
                 user_states.pop(user_id, None)
                 return
 
-            amount_kopecks = bouquet_obj.price * 100
-            invoice_title = f"Оплата букета ({bouquet_obj.price} руб.)"
-            invoice_desc = f"Заказ #{order_obj.id} из магазина {bot.get_me().username}"
-            prices = [types.LabeledPrice(label=f"Букет {bouquet_obj.price} руб.", amount=amount_kopecks)]
-
             try:
                 bot.send_invoice(
                     chat_id=chat_id,
-                    title=invoice_title,
-                    description=invoice_desc,
+                    title=f"Оплата букета ({bouquet_obj.title})",
+                    description=f"Заказ #{order_obj.id} из магазина @{bot.get_me().username}",
                     invoice_payload=payload,
                     provider_token=provider_token,
                     currency='RUB',
-                    prices=prices
+                    prices=[
+                        types.LabeledPrice(label=f"Букет: {bouquet_obj.title}", amount=bouquet_obj.price * 100)
+                    ]
                 )
                 bot.send_message(chat_id, "Ваш заказ создан. Оплатите, чтобы завершить оформление.")
             except Exception as e:
@@ -187,17 +200,25 @@ def handle_messages(bot, provider_token):
             return
 
         if message.text == 'Назад':
-            bot.send_message(chat_id, "Вы вернулись в главное меню", reply_markup=first_keyboard())
+            bot.send_message(
+                chat_id,
+                "Вы вернулись в главное меню",
+                reply_markup=first_keyboard()
+            )
 
-        elif message.text in ("День рождения", "Свадьба", "В школу", "Без повода", "Другой повод"):
-            chosen = message.text.lower().replace('ё', 'е')
-            user_info.setdefault(user_id, {})['occasion'] = chosen
-
+        elif message.text in ("День рождения", "Свадьба", "В школу", "Без повода"):
+            user_info[user_id] = {'occasion': message.text.lower()}
+            user_states[user_id] = 'awaiting_price_selection'
             bot.send_message(
                 chat_id,
                 'На какую сумму рассчитываете?',
                 reply_markup=create_first_set_inline()
             )
+
+        elif message.text == "Другой повод":
+            user_states[user_id] = 'awaiting_custom_occasion'
+            bot.send_message(chat_id, "Укажите, пожалуйста, повод:")
+
         else:
             bot.send_message(chat_id, "Пожалуйста, используйте кнопки меню или /start.")
 
