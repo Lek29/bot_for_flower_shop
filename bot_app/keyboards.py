@@ -32,11 +32,10 @@ def create_first_set_inline():
 
 
 def order_keyboard(price):
-    clean_price = price.replace('~', '')
     keyboard = telebot.types.InlineKeyboardMarkup()
     keyboard.add(
-        InlineKeyboardButton(
-            text=f'Заказать за {clean_price} руб.',
+        telebot.types.InlineKeyboardButton(
+            f'Заказать за {price} руб.',
             callback_data=f'order_{price}'
         )
     )

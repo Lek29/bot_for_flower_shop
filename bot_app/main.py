@@ -38,7 +38,7 @@ def main():
 
     handle_start(bot)
     handle_messages(bot, provider_token)
-    handle_callbacks(bot, provider_token)
+    handle_callbacks(bot)
     handle_pre_checkout(bot)
     handle_successful_payment(bot, user_info)
 

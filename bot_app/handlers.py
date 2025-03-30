@@ -1,5 +1,6 @@
 import time
 
+from django.db.models.functions import Random
 import telebot
 from telebot import types
 
@@ -16,14 +17,14 @@ user_info = {}
 from shop.models import Order, Bouquet, User
 
 
-def handle_start(bot: telebot.TeleBot):
+def handle_start(bot):
     @bot.message_handler(commands=['start'])
-    def send_welcome(message: types.Message):
+    def send_welcome(message):
         user_id = message.from_user.id
         chat_id = message.chat.id
         username = message.from_user.username or f'tg_user_{user_id}'
         full_name = message.from_user.full_name or username
-
+    
         user_obj, created = User.objects.get_or_create(
             username=username,
             defaults={
@@ -34,6 +35,7 @@ def handle_start(bot: telebot.TeleBot):
                 'is_active': True
             }
         )
+    
         if not created and user_obj.chat_id != chat_id:
             user_obj.chat_id = chat_id
             user_obj.save()
@@ -41,16 +43,22 @@ def handle_start(bot: telebot.TeleBot):
         user_states.pop(user_id, None)
         user_info.pop(user_id, None)
 
-        bot.send_message(chat_id, "Добро пожаловать в цветочный магазин!",
-                         reply_markup=telebot.types.ReplyKeyboardRemove())
-        bot.send_message(chat_id,
-                         "К какому событию готовимся? Выберите один из вариантов, либо укажите свой.",
-                         reply_markup=first_keyboard())
+        bot.send_message(
+            chat_id,
+            "Добро пожаловать в цветочный магазин!",
+            reply_markup=telebot.types.ReplyKeyboardRemove()
+        )
+
+        bot.send_message(
+            chat_id,
+            "К какому событию готовимся? Выберите один из вариантов, либо укажите свой.",
+            reply_markup=first_keyboard()
+        )
 
 
-def handle_messages(bot: telebot.TeleBot, provider_token: str):
+def handle_messages(bot, provider_token):
     @bot.message_handler(func=lambda message: True)
-    def handler_message(message: types.Message):
+    def handler_message(message):
         user_id = message.from_user.id
         chat_id = message.chat.id
         current_state = user_states.get(user_id, None)
@@ -59,11 +67,15 @@ def handle_messages(bot: telebot.TeleBot, provider_token: str):
             phone_number = message.text
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
 
-            bot.send_message(chat_id,
-                             "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:")
-            bot.send_message(chat_id,
-                             'На какую сумму рассчитываете?',
-                             reply_markup=create_first_set_inline())
+            bot.send_message(
+                chat_id,
+                "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
+            )
+            bot.send_message(
+                chat_id,
+                'На какую сумму рассчитываете?',
+                reply_markup=create_first_set_inline()
+            )
 
             florists = User.objects.filter(role='florist', is_active=True, chat_id__isnull=False)
             customer_username = message.from_user.username
@@ -102,18 +114,20 @@ def handle_messages(bot: telebot.TeleBot, provider_token: str):
         elif current_state == 'awaiting_time':
             user_info[user_id]['time'] = message.text
 
-            price = user_info[user_id].get('price')
-            if not price:
-                bot.send_message(chat_id, "Ошибка: не найдена цена. Начните сначала /start.")
+            bouquet_id = user_info[user_id].get('bouquet_id')
+            if not bouquet_id:
+                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните /start заново.")
                 user_states.pop(user_id, None)
                 user_info.pop(user_id, None)
                 return
 
             try:
-                rub_str = price.replace('~', '')
-                rub_int = int(rub_str)
-            except ValueError:
-                rub_int = 0
+                bouquet_obj = Bouquet.objects.get(id=bouquet_id, is_active=True)
+            except Bouquet.DoesNotExist:
+                bot.send_message(chat_id, "Ошибка: выбранный букет не найден или неактивен.")
+                user_states.pop(user_id, None)
+                user_info.pop(user_id, None)
+                return
 
             guest_user, _ = User.objects.get_or_create(
                 username=f"tg_{user_id}",
@@ -125,9 +139,6 @@ def handle_messages(bot: telebot.TeleBot, provider_token: str):
                 }
             )
 
-            bouquet_qs = Bouquet.objects.filter(is_active=True)
-            bouquet_obj = bouquet_qs.first() if bouquet_qs.exists() else None
-
             order_obj = Order.objects.create(
                 user=guest_user,
                 bouquet=bouquet_obj,
@@ -136,25 +147,26 @@ def handle_messages(bot: telebot.TeleBot, provider_token: str):
                 address=user_info[user_id]['address'],
                 delivery_datetime="2025-12-25 14:00:00",
                 status='new',
-                total_price=rub_int,
+                total_price=bouquet_obj.price,
                 florist=None,
                 courier=None
             )
 
             user_info[user_id]['order_id'] = order_obj.id
 
-            payload = f"order_{user_id}_{price}_{int(time.time())}"
+            payload = f"order_{user_id}_{bouquet_obj.price}_{int(time.time())}"
             user_info[user_id]['payload'] = payload
 
             if not provider_token:
-                bot.send_message(chat_id, "Онлайн-оплата недоступна. Заказ сохранён, статус: new.")
+                bot.send_message(chat_id, "Онлайн-оплата недоступна. Заказ сохранён (статус new).")
                 user_states.pop(user_id, None)
                 return
 
-            amount_kopecks = rub_int * 100
-            invoice_title = f"Оплата букета (~{rub_int} руб.)"
+            amount_kopecks = bouquet_obj.price * 100
+
+            invoice_title = f"Оплата букета ({bouquet_obj.price} руб.)"
             invoice_desc = f"Заказ #{order_obj.id} из магазина {bot.get_me().username}"
-            prices = [types.LabeledPrice(label=f"Букет {rub_int} руб.", amount=amount_kopecks)]
+            prices = [types.LabeledPrice(label=f"Букет {bouquet_obj.price} руб.", amount=amount_kopecks)]
 
             try:
                 bot.send_invoice(
@@ -176,71 +188,75 @@ def handle_messages(bot: telebot.TeleBot, provider_token: str):
             return
 
         if message.text == 'Назад':
-            bot.send_message(chat_id, "Вы вернулись в главное меню",
-                             reply_markup=first_keyboard())
+            bot.send_message(
+                chat_id,
+                "Вы вернулись в главное меню",
+                reply_markup=first_keyboard()
+            )
         elif message.text in ("День рождения", "Свадьба", "В школу", "Без повода", "Другой повод"):
-            bot.send_message(chat_id, 'На какую сумму рассчитываете?',
-                             reply_markup=create_first_set_inline())
+            bot.send_message(
+                chat_id,
+                'На какую сумму рассчитываете?',
+                reply_markup=create_first_set_inline()
+            )
         else:
             bot.send_message(chat_id, "Пожалуйста, используйте кнопки меню или /start.")
 
 
-def handle_callbacks(bot: telebot.TeleBot, provider_token: str):
+def handle_callbacks(bot):
     @bot.callback_query_handler(func=lambda call: True)
-    def handle_callback(call: types.CallbackQuery):
+    def handle_callback(call):
         user_id = call.from_user.id
         chat_id = call.message.chat.id
 
         if call.data.startswith('~'):
-            price_str = call.data
-            user_info.setdefault(user_id, {})['price'] = price_str
+            price_str = call.data.replace('~', '')
+            user_info.setdefault(user_id, {})['price_filter'] = price_str
 
             try:
-                target_price = int(price_str.replace('~', ''))
-            except ValueError:
-                target_price = None
+                if price_str.isdigit():
+                    price = int(price_str)
+                    bouquet = Bouquet.objects.filter(price__lte=price, is_active=True).order_by('-price').first()
 
-            bouquet = None
-            if target_price:
-                bouquet = Bouquet.objects.filter(
-                    is_active=True,
-                    price__lte=target_price
-                ).order_by('-price').first()
+                elif price_str == "Больше":
+                    bouquet = Bouquet.objects.filter(price__gt=2000, is_active=True).order_by('price').first()
 
-            if not bouquet:
-                bouquet = Bouquet.objects.filter(is_active=True).order_by('price').first()
+                elif price_str == "Не важно":
+                    bouquet = Bouquet.objects.filter(is_active=True).order_by(Random()).first()
 
-            if not bouquet or not bouquet.photo:
-                bot.answer_callback_query(call.id, "Подходящий букет не найден 😥", show_alert=True)
-                return
+                else:
+                    bouquet = None
 
-            from django.conf import settings
-            photo_path = bouquet.photo.path
+                if bouquet:
+                    user_info[user_id]['bouquet_id'] = bouquet.id
+                    with open(bouquet.photo.path, 'rb') as photo:
+                        caption = f"{bouquet.description}\n\nЦена: {bouquet.price} руб."
+                        bot.send_photo(chat_id, photo, caption=caption,
+                                       reply_markup=order_keyboard(bouquet.price))
 
-            caption = (
-                f"{bouquet.title}\n\n"
-                f"{bouquet.description}\n"
-                f"💰 Цена: {bouquet.price} руб."
-            )
+                    additional_text = (
+                        "<b>Хотите что-то еще более уникальное?</b>\n"
+                        "Подберите другой букет из нашей коллекции или закажите консультацию флориста."
+                    )
+                    bot.send_message(chat_id, additional_text, parse_mode='HTML', reply_markup=markup_keyboard())
+                else:
+                    bot.answer_callback_query(
+                        call.id,
+                        "Букетов не найдено под выбранный критерий.",
+                        show_alert=True
+                    )
 
-            try:
-                with open(photo_path, 'rb') as photo:
-                    bot.send_photo(chat_id, photo, caption=caption, reply_markup=order_keyboard(price_str))
             except Exception as e:
-                print(f"Ошибка отправки фото: {e}")
-                bot.send_message(chat_id, "Не удалось отправить фото букета. Попробуйте позже.")
-                return
-
-            additional_text = (
-                "<b>Хотите что-то еще более уникальное?</b>\n"
-                "Подберите другой букет из нашей коллекции или закажите консультацию флориста."
-            )
-            bot.send_message(chat_id, additional_text, parse_mode='HTML', reply_markup=markup_keyboard())
-            bot.answer_callback_query(call.id)
+                print(f"Ошибка при выборе букета: {e}")
+                bot.answer_callback_query(call.id, "Ошибка при выборе букета.", show_alert=True)
 
         elif call.data.startswith('order_'):
-            price = call.data.split('_')[1]
-            user_info[user_id] = {'price': price}
+            bouquet_id = user_info.get(user_id, {}).get('bouquet_id')
+            if not bouquet_id:
+                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните сначала /start")
+                return
+
+            user_info[user_id] = {'bouquet_id': bouquet_id}
             user_states[user_id] = 'awaiting_name'
             bot.send_message(chat_id, "Для оформления заказа, укажите Ваше имя:")
             bot.answer_callback_query(call.id, "Начинаем оформление заказа...")
@@ -255,23 +271,26 @@ def handle_callbacks(bot: telebot.TeleBot, provider_token: str):
             bot.send_message(chat_id, "Пока логика каталога не реализована.")
 
 
-def handle_pre_checkout(bot: telebot.TeleBot):
+def handle_pre_checkout(bot):
     @bot.pre_checkout_query_handler(func=lambda query: True)
-    def pre_checkout_query_callback(pre_checkout_query: types.PreCheckoutQuery):
+    def pre_checkout_query_callback(pre_checkout_query):
         try:
             bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
         except Exception as e:
             print(f"Ошибка при ответе на PreCheckoutQuery {pre_checkout_query.id}: {e}")
             try:
-                bot.answer_pre_checkout_query(pre_checkout_query.id, ok=False,
-                                              error_message="Техническая ошибка при оплате.")
+                bot.answer_pre_checkout_query(
+                    pre_checkout_query.id, 
+                    ok=False,
+                    error_message="Техническая ошибка при оплате."
+                )
             except Exception as final_e:
                 print(f"Не удалось ответить отказом на PreCheckoutQuery: {final_e}")
 
 
-def handle_successful_payment(bot: telebot.TeleBot, user_info: dict):
+def handle_successful_payment(bot, user_info):
     @bot.message_handler(content_types=['successful_payment'])
-    def successful_payment_callback(message: types.Message):
+    def successful_payment_callback(message):
         user_id = message.from_user.id
         chat_id = message.chat.id
         payment_info = message.successful_payment
