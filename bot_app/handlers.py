@@ -65,7 +65,7 @@ def handle_messages(bot, provider_token):
         if current_state == 'awaiting_phone_consult':
             phone_number = message.text
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
-
+        
             bot.send_message(
                 chat_id,
                 "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
@@ -75,23 +75,33 @@ def handle_messages(bot, provider_token):
                 'На какую сумму рассчитываете?',
                 reply_markup=create_first_set_inline()
             )
-
+        
             if FLORIST_CHAT_ID:
                 try:
                     florist_chat_id = int(FLORIST_CHAT_ID)
                     customer_username = message.from_user.username
                     customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
-                    bot.send_message(
-                        florist_chat_id,
+        
+                    occasion = user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion')
+                    price = user_info[user_id].get('price')
+        
+                    florist_text = (
                         f"📞 *Запрос на консультацию!*\n\n"
                         f"👤 *Клиент:* {customer_contact_info}\n"
-                        f"☎️ *Телефон:* {phone_number}\n\n"
-                        f"Пожалуйста, свяжитесь с клиентом.",
-                        parse_mode='Markdown'
+                        f"☎️ *Телефон:* {phone_number}\n"
                     )
+        
+                    if occasion:
+                        florist_text += f"🎉 *Повод:* {occasion}\n"
+                    if price:
+                        florist_text += f"💰 *Ожидаемый бюджет:* {price} руб.\n"
+        
+                    florist_text += "\nПожалуйста, свяжитесь с клиентом."
+        
+                    bot.send_message(florist_chat_id, florist_text, parse_mode='Markdown')
                 except ValueError:
                     print("Ошибка: FLORIST_CHAT_ID не является целым числом.")
-
+        
             user_states.pop(user_id, None)
             return
 
