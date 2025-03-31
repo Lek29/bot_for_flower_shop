@@ -15,7 +15,7 @@ from keyboards import (
 user_states = {}
 user_info = {}
 
-from shop.models import Bouquet
+from shop.models import Bouquet, Order, ConsultationRequest
 
 FLORIST_CHAT_ID = os.getenv('FLORIST_CHAT_ID')
 COURIER_CHAT_ID = os.getenv('COURIER_CHAT_ID')
@@ -71,8 +71,19 @@ def handle_messages(bot, provider_token):
 
         if current_state == 'awaiting_phone_consult':
             phone_number = message.text
+        
+            if 'occasion' not in user_info.get(user_id, {}):
+                user_info[user_id]['occasion'] = user_states.get(user_id, 'Без повода')
+        
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
-
+        
+            # ConsultationRequest.objects.create(
+            #     name=user_info[user_id].get('name') or 'Не указано',
+            #     phone=phone_number,
+            #     occasion=user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion') or '-',
+            #     budget=user_info[user_id].get('price') or 0
+            # )
+        
             bot.send_message(
                 chat_id,
                 "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
@@ -106,7 +117,13 @@ def handle_messages(bot, provider_token):
                     details += "\nПожалуйста, свяжитесь с клиентом."
             
                     bot.send_message(florist_chat_id, details, parse_mode="Markdown")
-            
+                    ConsultationRequest.objects.create(
+                        name=user_info[user_id].get('name') or 'Не указано',
+                        phone=phone_number,
+                        occasion=user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion') or '-',
+                        budget=user_info[user_id].get('price') or 0
+                    )
+
                 except ValueError:
                     print("Ошибка: FLORIST_CHAT_ID не является целым числом.")
 
@@ -173,6 +190,13 @@ def handle_messages(bot, provider_token):
                     prices=[types.LabeledPrice(label="Букет", amount=amount_in_kop)]
                 )
                 bot.send_message(chat_id, "Ваш заказ создан. Оплатите, чтобы завершить оформление.")
+                Order.objects.create(
+                    bouquet=bouquet_obj,
+                    price=int(price),
+                    address=user_info[user_id].get('address', 'Не указано'),
+                    delivery_date=user_info[user_id].get('date', 'Не указано'),
+                    delivery_time=user_info[user_id].get('time', 'Не указано')
+                )
             except Exception as e:
                 print(f"Ошибка send_invoice: {e}")
                 bot.send_message(chat_id, "Не удалось создать счёт. Попробуйте позже.")
@@ -292,7 +316,12 @@ def handle_callbacks(bot):
                 return
 
             try:
-                p_last = int(last_price_str) if last_price_str.isdigit() else last_bouquet.price
+                if isinstance(last_price_str, int):
+                    p_last = last_price_str
+                elif isinstance(last_price_str, str) and last_price_str.isdigit():
+                    p_last = int(last_price_str)
+                else:
+                    p_last = last_bouquet.price
             except ValueError:
                 p_last = last_bouquet.price
 

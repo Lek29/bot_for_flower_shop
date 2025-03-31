@@ -21,4 +21,26 @@ class Bouquet(models.Model):
 
     def __str__(self):
         return self.title
-    
+
+
+class Order(models.Model):
+    bouquet = models.ForeignKey(Bouquet, on_delete=models.SET_NULL, null=True, blank=True)
+    price = models.IntegerField()
+    address = models.TextField()
+    delivery_date = models.CharField(max_length=50)
+    delivery_time = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Заказ от {self.created_at.strftime("%d.%m.%Y %H:%M")} — {self.price} руб.'
+
+
+class ConsultationRequest(models.Model):
+    name = models.CharField(max_length=100)
+    phone = models.CharField(max_length=30)
+    occasion = models.CharField(max_length=100, blank=True, null=True)
+    budget = models.CharField(max_length=50, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Консультация от {self.name} — {self.phone}'
