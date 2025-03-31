@@ -347,6 +347,12 @@ def handle_successful_payment(bot):
             bouquet_id = info.get('bouquet_id')
             bouquet_price = info.get('price', 0)
 
+            try:
+                bouquet_obj = Bouquet.objects.get(id=bouquet_id)
+                bouquet_title = bouquet_obj.title
+            except Bouquet.DoesNotExist:
+                bouquet_title = "Название не найдено"
+
             confirmation_text = (
                 f"✅ Оплата на сумму {amount} {currency} прошла успешно!\n"
                 f"Заказ #{order_id} теперь оплачен. Спасибо! 🎉\n\n"
@@ -363,7 +369,7 @@ def handle_successful_payment(bot):
                     courier_text = (
                         f"‼️ *Новый оплаченный заказ #{order_id}!* \n\n"
                         f"💰 *Сумма:* {amount} {currency}\n"
-                        f"💐 *Цена букета:* {bouquet_price} руб.\n"
+                        f"💐 *Букет:* {bouquet_title} ({bouquet_price} руб.)\n"
                         f"👤 *Получатель:* {name}\n"
                         f"🏠 *Адрес:* {address}\n"
                         f"📅 *Дата:* {date_val}\n"
@@ -372,7 +378,6 @@ def handle_successful_payment(bot):
                     bot.send_message(courier_chat_id, courier_text, parse_mode='Markdown')
                 except ValueError:
                     print("Ошибка: COURIER_CHAT_ID не является целым числом.")
-
         else:
             bot.send_message(chat_id, "Не удалось подтвердить оплату заказа. Обратитесь в поддержку.")
 
