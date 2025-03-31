@@ -77,13 +77,6 @@ def handle_messages(bot, provider_token):
         
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
         
-            # ConsultationRequest.objects.create(
-            #     name=user_info[user_id].get('name') or 'Не указано',
-            #     phone=phone_number,
-            #     occasion=user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion') or '-',
-            #     budget=user_info[user_id].get('price') or 0
-            # )
-        
             bot.send_message(
                 chat_id,
                 "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
