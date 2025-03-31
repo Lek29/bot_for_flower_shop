@@ -213,33 +213,39 @@ def handle_callbacks(bot):
         if call.data.startswith('~'):
             price_str = call.data.replace('~', '')
             user_info.setdefault(user_id, {})
-            user_info[user_id]['price'] = price_str
-
+        
             occasion = user_info[user_id].get('occasion', '')
-
+        
             qs = Bouquet.objects.filter(is_active=True)
             if occasion:
                 qs = qs.filter(occasion__iexact=occasion)
-
+        
             try:
                 if price_str.isdigit():
                     price_value = int(price_str)
+                    user_info[user_id]['price'] = price_value
                     qs = qs.filter(price__lte=price_value).order_by('-price')
                     bouquet = qs.first()
+        
                 elif price_str == 'Больше':
-                    qs = qs.filter(price__gt=2000).order_by('price')
+                    min_price = 2000
+                    user_info[user_id]['price'] = min_price + 1
+                    qs = qs.filter(price__gt=min_price).order_by('price')
                     bouquet = qs.first()
+        
                 elif price_str == 'Не важно':
+                    user_info[user_id]['price'] = 'any'
                     bouquet = qs.order_by(Random()).first()
+        
                 else:
                     bouquet = None
-
+        
                 if bouquet:
                     user_info[user_id]['bouquet_id'] = bouquet.id
                     with open(bouquet.photo.path, 'rb') as photo:
                         caption = f"{bouquet.description}\n\nЦена: {bouquet.price} руб."
                         bot.send_photo(chat_id, photo, caption=caption, reply_markup=order_keyboard(bouquet.price))
-
+        
                     additional_text = (
                         "<b>Хотите что-то еще более уникальное?</b>\n"
                         "Подберите другой букет из нашей коллекции или закажите консультацию флориста."
