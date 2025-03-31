@@ -1,27 +1,30 @@
 import os
 import sys
+
 from dotenv import load_dotenv
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(CURRENT_DIR)
-
 sys.path.append(BASE_DIR)
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'flower_shop.settings')
 load_dotenv()
+
 import django
 django.setup()
+from django.conf import settings
+print("📦 Бот использует базу данных:", settings.DATABASES['default']['NAME'])
 
 import telebot
+
 from handlers import (
     handle_start,
     handle_messages,
     handle_callbacks,
     handle_pre_checkout,
     handle_successful_payment,
-    user_info,
 )
-from shop.models import User, Order, Bouquet
+
 
 def main():
     token_tg = os.getenv('TOKEN_TG')
@@ -40,7 +43,7 @@ def main():
     handle_messages(bot, provider_token)
     handle_callbacks(bot)
     handle_pre_checkout(bot)
-    handle_successful_payment(bot, user_info)
+    handle_successful_payment(bot)
 
     print("✅ Бот запущен. Ожидаю команды...")
     bot.polling(non_stop=True)

@@ -1,4 +1,5 @@
 import time
+import os
 
 from django.db.models.functions import Random
 import telebot
@@ -14,7 +15,10 @@ from keyboards import (
 user_states = {}
 user_info = {}
 
-from shop.models import Order, Bouquet, User
+from shop.models import Bouquet
+
+FLORIST_CHAT_ID = os.getenv('FLORIST_CHAT_ID')
+COURIER_CHAT_ID = os.getenv('COURIER_CHAT_ID')
 
 
 def handle_start(bot):
@@ -22,23 +26,6 @@ def handle_start(bot):
     def send_welcome(message):
         user_id = message.from_user.id
         chat_id = message.chat.id
-        username = message.from_user.username or f'tg_user_{user_id}'
-        full_name = message.from_user.full_name or username
-    
-        user_obj, created = User.objects.get_or_create(
-            username=username,
-            defaults={
-                'full_name': full_name,
-                'phone': '',
-                'role': None,
-                'chat_id': chat_id,
-                'is_active': True
-            }
-        )
-    
-        if not created and user_obj.chat_id != chat_id:
-            user_obj.chat_id = chat_id
-            user_obj.save()
 
         user_states.pop(user_id, None)
         user_info.pop(user_id, None)
@@ -48,7 +35,6 @@ def handle_start(bot):
             "Добро пожаловать в цветочный магазин!",
             reply_markup=telebot.types.ReplyKeyboardRemove()
         )
-
         bot.send_message(
             chat_id,
             "К какому событию готовимся? Выберите один из вариантов, либо укажите свой.",
@@ -64,7 +50,9 @@ def handle_messages(bot, provider_token):
         current_state = user_states.get(user_id, None)
 
         if current_state == 'awaiting_custom_occasion':
-            user_info[user_id] = {'occasion': 'без повода'}
+            user_info[user_id] = {}
+            user_info[user_id]['custom_occasion'] = message.text or 'Без повода'
+            user_info[user_id]['occasion'] = 'Без повода'
             user_states[user_id] = 'awaiting_price_selection'
 
             bot.send_message(
@@ -88,18 +76,21 @@ def handle_messages(bot, provider_token):
                 reply_markup=create_first_set_inline()
             )
 
-            florists = User.objects.filter(role='florist', is_active=True, chat_id__isnull=False)
-            customer_username = message.from_user.username
-            customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
-            for florist in florists:
-                bot.send_message(
-                    florist.chat_id,
-                    f"📞 *Запрос на консультацию!*\n\n"
-                    f"👤 *Клиент:* {customer_contact_info}\n"
-                    f"☎️ *Телефон:* {phone_number}\n\n"
-                    f"Пожалуйста, свяжитесь с клиентом.",
-                    parse_mode='Markdown'
-                )
+            if FLORIST_CHAT_ID:
+                try:
+                    florist_chat_id = int(FLORIST_CHAT_ID)
+                    customer_username = message.from_user.username
+                    customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
+                    bot.send_message(
+                        florist_chat_id,
+                        f"📞 *Запрос на консультацию!*\n\n"
+                        f"👤 *Клиент:* {customer_contact_info}\n"
+                        f"☎️ *Телефон:* {phone_number}\n\n"
+                        f"Пожалуйста, свяжитесь с клиентом.",
+                        parse_mode='Markdown'
+                    )
+                except ValueError:
+                    print("Ошибка: FLORIST_CHAT_ID не является целым числом.")
 
             user_states.pop(user_id, None)
             return
@@ -113,7 +104,7 @@ def handle_messages(bot, provider_token):
         elif current_state == 'awaiting_address':
             user_info[user_id]['address'] = message.text
             user_states[user_id] = 'awaiting_date'
-            bot.send_message(chat_id, "Понял. Введите желаемую дату доставки (например, 25.12.2023):")
+            bot.send_message(chat_id, "Понял. Введите желаемую дату доставки (например, 25.12.2025):")
             return
 
         elif current_state == 'awaiting_date':
@@ -134,67 +125,39 @@ def handle_messages(bot, provider_token):
                 user_info.pop(user_id, None)
                 return
 
-            try:
-                rub_int = int(price)
-            except ValueError:
-                rub_int = 0
+            if not provider_token:
+                bot.send_message(chat_id, "Онлайн-оплата недоступна. Заказ сформирован без оплаты.")
+                user_states.pop(user_id, None)
+                return
+
+            order_id = int(time.time())
+            user_info[user_id]['order_id'] = order_id
+            payload = f"order_{user_id}_{price}_{order_id}"
+            user_info[user_id]['payload'] = payload
 
             try:
                 bouquet_obj = Bouquet.objects.get(id=bouquet_id)
+                invoice_title = f"Оплата букета: {bouquet_obj.title}"
+                invoice_desc = f"Заказ #{order_id} из магазина @{bot.get_me().username}"
             except Bouquet.DoesNotExist:
-                bot.send_message(chat_id, "Ошибка: выбранный букет не найден. Попробуйте сначала /start.")
-                user_states.pop(user_id, None)
-                return
-
-            guest_user, _ = User.objects.get_or_create(
-                username=f"tg_{user_id}",
-                defaults={
-                    "full_name": message.from_user.first_name or "Telegram User",
-                    "phone": "",
-                    "role": None,
-                    "is_active": True
-                }
-            )
-
-            order_obj = Order.objects.create(
-                user=guest_user,
-                bouquet=bouquet_obj,
-                customer_name=user_info[user_id]['name'],
-                phone="",
-                address=user_info[user_id]['address'],
-                delivery_datetime="2025-12-25 14:00:00",
-                status='new',
-                total_price=bouquet_obj.price,
-                florist=None,
-                courier=None
-            )
-
-            user_info[user_id]['order_id'] = order_obj.id
-            payload = f"order_{user_id}_{price}_{int(time.time())}"
-            user_info[user_id]['payload'] = payload
-
-            if not provider_token:
-                bot.send_message(chat_id, "Онлайн-оплата недоступна. Заказ сохранён, статус: new.")
-                user_states.pop(user_id, None)
-                return
+                invoice_title = "Оплата букета"
+                invoice_desc = f"Заказ #{order_id} из магазина @{bot.get_me().username}"
 
             try:
+                amount_in_kop = int(price) * 100
                 bot.send_invoice(
                     chat_id=chat_id,
-                    title=f"Оплата букета ({bouquet_obj.title})",
-                    description=f"Заказ #{order_obj.id} из магазина @{bot.get_me().username}",
+                    title=invoice_title,
+                    description=invoice_desc,
                     invoice_payload=payload,
                     provider_token=provider_token,
                     currency='RUB',
-                    prices=[
-                        types.LabeledPrice(label=f"Букет: {bouquet_obj.title}", amount=bouquet_obj.price * 100)
-                    ]
+                    prices=[types.LabeledPrice(label="Букет", amount=amount_in_kop)]
                 )
                 bot.send_message(chat_id, "Ваш заказ создан. Оплатите, чтобы завершить оформление.")
             except Exception as e:
                 print(f"Ошибка send_invoice: {e}")
                 bot.send_message(chat_id, "Не удалось создать счёт. Попробуйте позже.")
-                order_obj.delete()
 
             user_states.pop(user_id, None)
             return
@@ -207,7 +170,7 @@ def handle_messages(bot, provider_token):
             )
 
         elif message.text in ("День рождения", "Свадьба", "В школу", "Без повода"):
-            user_info[user_id] = {'occasion': message.text.lower()}
+            user_info[user_id] = {'occasion': message.text}
             user_states[user_id] = 'awaiting_price_selection'
             bot.send_message(
                 chat_id,
@@ -232,20 +195,24 @@ def handle_callbacks(bot):
         if call.data.startswith('~'):
             price_str = call.data.replace('~', '')
             user_info.setdefault(user_id, {})
-            user_info[user_id]['price_filter'] = price_str
+            user_info[user_id]['price'] = price_str
+
+            occasion = user_info[user_id].get('occasion', '')
+
+            qs = Bouquet.objects.filter(is_active=True)
+            if occasion:
+                qs = qs.filter(occasion__iexact=occasion)
 
             try:
-                qs = Bouquet.objects.filter(is_active=True)
                 if price_str.isdigit():
-                    price = int(price_str)
-                    qs = qs.filter(price__lte=price).order_by('-price')
+                    price_value = int(price_str)
+                    qs = qs.filter(price__lte=price_value).order_by('-price')
                     bouquet = qs.first()
                 elif price_str == 'Больше':
                     qs = qs.filter(price__gt=2000).order_by('price')
                     bouquet = qs.first()
                 elif price_str == 'Не важно':
-                    qs = qs.order_by(Random()).first()
-                    bouquet = qs
+                    bouquet = qs.order_by(Random()).first()
                 else:
                     bouquet = None
 
@@ -253,8 +220,7 @@ def handle_callbacks(bot):
                     user_info[user_id]['bouquet_id'] = bouquet.id
                     with open(bouquet.photo.path, 'rb') as photo:
                         caption = f"{bouquet.description}\n\nЦена: {bouquet.price} руб."
-                        bot.send_photo(chat_id, photo, caption=caption,
-                                       reply_markup=order_keyboard(bouquet.price))
+                        bot.send_photo(chat_id, photo, caption=caption, reply_markup=order_keyboard(bouquet.price))
 
                     additional_text = (
                         "<b>Хотите что-то еще более уникальное?</b>\n"
@@ -272,12 +238,11 @@ def handle_callbacks(bot):
                 bot.answer_callback_query(call.id, "Ошибка при выборе букета.", show_alert=True)
 
         elif call.data.startswith('order_'):
-            bouquet_id = user_info.get(user_id, {}).get('bouquet_id')
-            if not bouquet_id:
-                bot.send_message(chat_id, "Ошибка: не выбран букет. Начните /start.")
-                return
+            parts = call.data.split('_')
+            if len(parts) == 2:
+                price_value = parts[1]
+                user_info[user_id]['price'] = price_value
 
-            user_info[user_id] = {'bouquet_id': bouquet_id}
             user_states[user_id] = 'awaiting_name'
             bot.send_message(chat_id, "Для оформления заказа, укажите Ваше имя:")
             bot.answer_callback_query(call.id, "Начинаем оформление заказа...")
@@ -289,7 +254,10 @@ def handle_callbacks(bot):
 
         elif call.data == 'more_flowers':
             last_id = user_info.get(user_id, {}).get('bouquet_id')
-            if not last_id:
+            last_price_str = user_info.get(user_id, {}).get('price')
+            occasion = user_info[user_id].get('occasion', '')
+
+            if not last_id or not last_price_str:
                 bot.answer_callback_query(call.id, "Сначала выберите какой-нибудь букет", show_alert=True)
                 return
 
@@ -299,13 +267,19 @@ def handle_callbacks(bot):
                 bot.answer_callback_query(call.id, "Текущий букет недоступен", show_alert=True)
                 return
 
-            p_min = max(0, last_bouquet.price - 200)
-            p_max = last_bouquet.price + 200
+            try:
+                p_last = int(last_price_str) if last_price_str.isdigit() else last_bouquet.price
+            except ValueError:
+                p_last = last_bouquet.price
 
-            qs = Bouquet.objects.filter(is_active=True,
-                                        price__gte=p_min, price__lte=p_max
-                                        ).exclude(id=last_bouquet.id)
+            p_min = max(0, p_last - 200)
+            p_max = p_last + 200
 
+            qs = Bouquet.objects.filter(is_active=True)
+            if occasion:
+                qs = qs.filter(occasion__iexact=occasion)
+
+            qs = qs.filter(price__gte=p_min, price__lte=p_max).exclude(id=last_bouquet.id)
             new_bouquet = qs.order_by(Random()).first()
             if not new_bouquet:
                 bot.answer_callback_query(
@@ -316,12 +290,12 @@ def handle_callbacks(bot):
                 return
 
             user_info[user_id]['bouquet_id'] = new_bouquet.id
+            user_info[user_id]['price'] = str(new_bouquet.price)
 
             try:
                 with open(new_bouquet.photo.path, 'rb') as photo:
                     caption = f"{new_bouquet.description}\n\nЦена: {new_bouquet.price} руб."
-                    bot.send_photo(chat_id, photo, caption=caption,
-                                   reply_markup=order_keyboard(new_bouquet.price))
+                    bot.send_photo(chat_id, photo, caption=caption, reply_markup=order_keyboard(new_bouquet.price))
             except Exception as e:
                 print(f"Ошибка открытия фото {e}")
                 bot.send_message(chat_id, "Не удалось открыть фото букета.")
@@ -343,7 +317,7 @@ def handle_pre_checkout(bot):
             print(f"Ошибка при ответе на PreCheckoutQuery {pre_checkout_query.id}: {e}")
             try:
                 bot.answer_pre_checkout_query(
-                    pre_checkout_query.id, 
+                    pre_checkout_query.id,
                     ok=False,
                     error_message="Техническая ошибка при оплате."
                 )
@@ -351,7 +325,7 @@ def handle_pre_checkout(bot):
                 print(f"Не удалось ответить отказом на PreCheckoutQuery: {final_e}")
 
 
-def handle_successful_payment(bot, user_info):
+def handle_successful_payment(bot):
     @bot.message_handler(content_types=['successful_payment'])
     def successful_payment_callback(message):
         user_id = message.from_user.id
@@ -366,41 +340,43 @@ def handle_successful_payment(bot, user_info):
         order_id = info.get('order_id')
 
         if stored_payload == payload and order_id:
-            try:
-                order_obj = Order.objects.get(id=order_id)
-                order_obj.status = 'paid'
-                order_obj.save()
+            name = info.get('name', 'Не указано')
+            address = info.get('address', 'Не указано')
+            date_val = info.get('date', 'Не указано')
+            time_val = info.get('time', 'Не указано')
+            bouquet_id = info.get('bouquet_id')
+            bouquet_price = info.get('price', 0)
 
-                name = order_obj.customer_name
-                address = order_obj.address
-                total_price = order_obj.total_price
+            confirmation_text = (
+                f"✅ Оплата на сумму {amount} {currency} прошла успешно!\n"
+                f"Заказ #{order_id} теперь оплачен. Спасибо! 🎉\n\n"
+                f"Имя получателя: {name}\n"
+                f"Адрес: {address}\n"
+                f"Дата: {date_val} | Время: {time_val}\n"
+                f"Сумма: {bouquet_price} руб.\n"
+            )
+            bot.send_message(chat_id, confirmation_text)
 
-                confirmation_text = (
-                    f"✅ Оплата на сумму {amount} {currency} прошла успешно!\n"
-                    f"Заказ #{order_id} теперь оплачен. Спасибо! 🎉\n"
-                    f"Имя получателя: {name}\n"
-                    f"Адрес: {address}\n"
-                )
-                bot.send_message(chat_id, confirmation_text)
-
-                couriers = User.objects.filter(role='courier', is_active=True, chat_id__isnull=False)
-                for courier in couriers:
+            if COURIER_CHAT_ID:
+                try:
+                    courier_chat_id = int(COURIER_CHAT_ID)
                     courier_text = (
                         f"‼️ *Новый оплаченный заказ #{order_id}!* \n\n"
                         f"💰 *Сумма:* {amount} {currency}\n"
-                        f"💐 *Букет:* {total_price} руб.\n"
+                        f"💐 *Цена букета:* {bouquet_price} руб.\n"
                         f"👤 *Получатель:* {name}\n"
                         f"🏠 *Адрес:* {address}\n"
+                        f"📅 *Дата:* {date_val}\n"
+                        f"⏰ *Время:* {time_val}\n"
                     )
-                    bot.send_message(courier.chat_id, courier_text, parse_mode='Markdown')
+                    bot.send_message(courier_chat_id, courier_text, parse_mode='Markdown')
+                except ValueError:
+                    print("Ошибка: COURIER_CHAT_ID не является целым числом.")
 
-            except Order.DoesNotExist:
-                bot.send_message(chat_id, "Ошибка: заказ не найден в базе данных.")
         else:
             bot.send_message(chat_id, "Не удалось подтвердить оплату заказа. Обратитесь в поддержку.")
 
         user_info.pop(user_id, None)
-
         bot.send_message(
             chat_id,
             f"✅ Спасибо за покупку! Ваш заказ оплачен на {amount} {currency}."
