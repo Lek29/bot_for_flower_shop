@@ -49,6 +49,13 @@ def handle_messages(bot, provider_token):
         chat_id = message.chat.id
         current_state = user_states.get(user_id, None)
 
+        button_labels = ["День рождения", "Свадьба", "В школу", "Без повода", "Другой повод", "Назад"]
+        if message.text in button_labels and current_state in [
+            'awaiting_custom_occasion', 'awaiting_phone_consult',
+            'awaiting_name', 'awaiting_address', 'awaiting_date', 'awaiting_time']:
+            bot.send_message(chat_id, "Пожалуйста, введите ответ вручную или нажмите /start для начала заново.")
+            return
+
         if current_state == 'awaiting_custom_occasion':
             user_info[user_id] = {}
             user_info[user_id]['custom_occasion'] = message.text or 'Без повода'
@@ -65,7 +72,7 @@ def handle_messages(bot, provider_token):
         if current_state == 'awaiting_phone_consult':
             phone_number = message.text
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
-        
+
             bot.send_message(
                 chat_id,
                 "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
@@ -75,33 +82,34 @@ def handle_messages(bot, provider_token):
                 'На какую сумму рассчитываете?',
                 reply_markup=create_first_set_inline()
             )
-        
+
             if FLORIST_CHAT_ID:
                 try:
                     florist_chat_id = int(FLORIST_CHAT_ID)
                     customer_username = message.from_user.username
                     customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
-        
-                    occasion = user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion')
-                    price = user_info[user_id].get('price')
-        
-                    florist_text = (
+            
+                    occasion = user_info[user_id].get("custom_occasion") or user_info[user_id].get("occasion")
+                    price = user_info[user_id].get("price")
+            
+                    details = (
                         f"📞 *Запрос на консультацию!*\n\n"
                         f"👤 *Клиент:* {customer_contact_info}\n"
                         f"☎️ *Телефон:* {phone_number}\n"
                     )
-        
+            
                     if occasion:
-                        florist_text += f"🎉 *Повод:* {occasion}\n"
+                        details += f"🎉 *Повод:* {occasion}\n"
                     if price:
-                        florist_text += f"💰 *Ожидаемый бюджет:* {price} руб.\n"
-        
-                    florist_text += "\nПожалуйста, свяжитесь с клиентом."
-        
-                    bot.send_message(florist_chat_id, florist_text, parse_mode='Markdown')
+                        details += f"💰 *Ожидаемый бюджет:* {price} руб.\n"
+            
+                    details += "\nПожалуйста, свяжитесь с клиентом."
+            
+                    bot.send_message(florist_chat_id, details, parse_mode="Markdown")
+            
                 except ValueError:
                     print("Ошибка: FLORIST_CHAT_ID не является целым числом.")
-        
+
             user_states.pop(user_id, None)
             return
 
