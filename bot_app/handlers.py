@@ -24,6 +24,9 @@ COURIER_CHAT_ID = os.getenv('COURIER_CHAT_ID')
 def handle_start(bot):
     @bot.message_handler(commands=['start'])
     def send_welcome(message):
+        if message.chat.type != "private":
+            return
+        
         user_id = message.from_user.id
         chat_id = message.chat.id
 
@@ -380,6 +383,9 @@ def handle_pre_checkout(bot):
 def handle_successful_payment(bot):
     @bot.message_handler(content_types=['successful_payment'])
     def successful_payment_callback(message):
+        if message.chat.type != "private":
+            return
+        
         user_id = message.from_user.id
         chat_id = message.chat.id
         payment_info = message.successful_payment
