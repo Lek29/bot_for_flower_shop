@@ -45,6 +45,9 @@ def handle_start(bot):
 def handle_messages(bot, provider_token):
     @bot.message_handler(func=lambda message: True)
     def handler_message(message):
+        if message.chat.type != 'private':
+            return
+        
         user_id = message.from_user.id
         chat_id = message.chat.id
         current_state = user_states.get(user_id, None)
@@ -224,6 +227,9 @@ def handle_messages(bot, provider_token):
 def handle_callbacks(bot):
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callback(call):
+        if call.message.chat.type != 'private':
+            return
+        
         user_id = call.from_user.id
         chat_id = call.message.chat.id
 
