@@ -83,6 +83,13 @@ def handle_messages(bot, provider_token):
         
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
         
+            ConsultationRequest.objects.create(
+                name=user_info[user_id].get('name') or 'Не указано',
+                phone=phone_number,
+                occasion=user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion') or '-',
+                budget=user_info[user_id].get('price') or 0
+            )
+        
             bot.send_message(
                 chat_id,
                 "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции:"
@@ -92,40 +99,35 @@ def handle_messages(bot, provider_token):
                 'На какую сумму рассчитываете?',
                 reply_markup=create_first_set_inline()
             )
-
+        
             if FLORIST_CHAT_ID:
                 try:
                     florist_chat_id = int(FLORIST_CHAT_ID)
                     customer_username = message.from_user.username
-                    customer_contact_info = f"@{customer_username}" if customer_username else f"User ID: {user_id}"
-            
+                    customer_contact_info = (
+                        f"@{customer_username}" if customer_username else f"User ID: {user_id}"
+                    )
+        
                     occasion = user_info[user_id].get("custom_occasion") or user_info[user_id].get("occasion")
                     price = user_info[user_id].get("price")
-            
+        
                     details = (
                         f"📞 *Запрос на консультацию!*\n\n"
                         f"👤 *Клиент:* {customer_contact_info}\n"
                         f"☎️ *Телефон:* {phone_number}\n"
                     )
-            
+        
                     if occasion:
                         details += f"🎉 *Повод:* {occasion}\n"
                     if price:
                         details += f"💰 *Ожидаемый бюджет:* {price} руб.\n"
-            
+        
                     details += "\nПожалуйста, свяжитесь с клиентом."
-            
+        
                     bot.send_message(florist_chat_id, details, parse_mode="Markdown")
-                    ConsultationRequest.objects.create(
-                        name=user_info[user_id].get('name') or 'Не указано',
-                        phone=phone_number,
-                        occasion=user_info[user_id].get('custom_occasion') or user_info[user_id].get('occasion') or '-',
-                        budget=user_info[user_id].get('price') or 0
-                    )
-
                 except ValueError:
                     print("Ошибка: FLORIST_CHAT_ID не является целым числом.")
-
+        
             user_states.pop(user_id, None)
             return
 
