@@ -82,6 +82,8 @@ def handle_messages(bot, provider_token):
                 user_info[user_id]['occasion'] = user_states.get(user_id, 'Без повода')
         
             user_info.setdefault(user_id, {})['phone_consult'] = phone_number
+            customer_name = message.from_user.full_name or message.from_user.username or 'Не указано'
+            user_info[user_id]['name'] = customer_name
         
             ConsultationRequest.objects.create(
                 name=user_info[user_id].get('name') or 'Не указано',
